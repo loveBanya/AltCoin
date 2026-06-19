@@ -1,0 +1,285 @@
+import type { CoinResult, ScannerConfig } from "./types";
+
+const BINANCE_FAPI = "https://fapi.binance.com";
+
+interface Ticker24h {
+  symbol: string;
+  lastPrice: string;
+  quoteVolume: string;
+  volume: string;
+  priceChangePercent: string;
+}
+
+type Kline = [number, string, string, string, string, string, ...unknown[]];
+
+interface AnalyzedRow extends Omit<CoinResult, "rank"> {
+  score: number;
+}
+
+async function binanceGet<T>(endpoint: string, params?: Record<string, string | number>): Promise<T> {
+  const url = new URL(`${BINANCE_FAPI}${endpoint}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, String(v));
+    }
+  }
+
+  const res = await fetch(url.toString(), {
+    headers: { "User-Agent": "altcoin-scanner/1.0" },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Binance API error: ${res.status} ${endpoint}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+function ema(values: number[], span: number): number[] {
+  const k = 2 / (span + 1);
+  const result: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    if (i === 0) {
+      result.push(values[0]);
+    } else {
+      result.push(values[i] * k + result[i - 1] * (1 - k));
+    }
+  }
+  return result;
+}
+
+function calcMacd(
+  closes: number[],
+  fast: number,
+  slow: number,
+  signal: number,
+): { macd: number[]; signal: number[] } {
+  const emaFast = ema(closes, fast);
+  const emaSlow = ema(closes, slow);
+  const macdLine = emaFast.map((v, i) => v - emaSlow[i]);
+  const signalLine = ema(macdLine, signal);
+  return { macd: macdLine, signal: signalLine };
+}
+
+function detectMacdSignal(
+  macdLine: number[],
+  signalLine: number[],
+  config: ScannerConfig,
+): { found: boolean; crossType: string; barsAgo: number } {
+  const n = macdLine.length;
+  if (n < config.macdSlow + config.macdSignal + 2) {
+    return { found: false, crossType: "", barsAgo: -1 };
+  }
+
+  const lookStart = Math.max(1, n - config.lookbackMax);
+  const lookEnd = n - config.lookbackMin;
+
+  for (let i = lookEnd; i >= lookStart; i--) {
+    const prevI = i - 1;
+    const barsAgo = n - 1 - i;
+
+    if (config.detectGoldenCross) {
+      if (macdLine[prevI] <= signalLine[prevI] && macdLine[i] > signalLine[i]) {
+        return { found: true, crossType: "골든크로스", barsAgo };
+      }
+    }
+
+    if (config.detectZeroCross) {
+      if (macdLine[prevI] <= 0 && macdLine[i] > 0) {
+        return { found: true, crossType: "0선 돌파", barsAgo };
+      }
+    }
+  }
+
+  return { found: false, crossType: "", barsAgo: -1 };
+}
+
+function scoreCoin(
+  macdFound: boolean,
+  barsAgo: number,
+  dropPct: number,
+  quoteRank: number,
+  volRank: number,
+  config: ScannerConfig,
+): number {
+  let score = 0;
+
+  // 거래량 순위 (유동성)
+  score += Math.max(0, 101 - quoteRank) * 2;
+  score += Math.max(0, 101 - volRank);
+
+  // MACD 신호
+  if (macdFound) {
+    score += 1000;
+    score += Math.max(0, 6 - barsAgo) * 20;
+  }
+
+  // 고점 대비 하락 범위
+  if (dropPct >= config.minDropPct && dropPct <= config.maxDropPct) {
+    score += 500;
+    const mid = (config.minDropPct + config.maxDropPct) / 2;
+    score += Math.max(0, 50 - Math.abs(dropPct - mid));
+  } else {
+    const dist =
+      dropPct < config.minDropPct
+        ? config.minDropPct - dropPct
+        : dropPct > config.maxDropPct
+          ? dropPct - config.maxDropPct
+          : 0;
+    score += Math.max(0, 80 - dist * 3);
+  }
+
+  return score;
+}
+
+async function getKlines(symbol: string, interval: string, limit: number): Promise<Kline[]> {
+  return binanceGet<Kline[]>("/fapi/v1/klines", { symbol, interval, limit });
+}
+
+async function analyzeSymbol(
+  symbol: string,
+  ticker: Ticker24h,
+  quoteRank: number,
+  volRank: number,
+  config: ScannerConfig,
+): Promise<AnalyzedRow | null> {
+  try {
+    const [klines5m, klines1d] = await Promise.all([
+      getKlines(symbol, "5m", 200),
+      getKlines(symbol, "1d", config.highDays),
+    ]);
+
+    if (!klines5m.length || !klines1d.length) return null;
+
+    const closes5m = klines5m.map((k) => parseFloat(k[4]));
+    const { macd: macdLine, signal: signalLine } = calcMacd(
+      closes5m,
+      config.macdFast,
+      config.macdSlow,
+      config.macdSignal,
+    );
+
+    const { found, crossType, barsAgo } = detectMacdSignal(macdLine, signalLine, config);
+
+    const high90d = Math.max(...klines1d.map((k) => parseFloat(k[2])));
+    const currentPrice = parseFloat(ticker.lastPrice);
+    const dropPct = ((currentPrice - high90d) / high90d) * 100;
+    const dropMatch = dropPct >= config.minDropPct && dropPct <= config.maxDropPct;
+
+    const lastMacd = macdLine[macdLine.length - 1];
+    const lastSignal = signalLine[signalLine.length - 1];
+
+    const signals: string[] = [];
+    if (found) signals.push(crossType);
+    if (found && config.detectGoldenCross && config.detectZeroCross) {
+      if (crossType === "골든크로스" && lastMacd > 0) signals.push("0선 위");
+      if (crossType === "0선 돌파" && lastMacd > lastSignal) signals.push("시그널 위");
+    }
+    if (!found) signals.push("MACD 미충족");
+    if (!dropMatch) signals.push("고점범위 미충족");
+
+    const score = scoreCoin(found, barsAgo, dropPct, quoteRank, volRank, config);
+
+    return {
+      symbol: symbol.replace("USDT", ""),
+      price: currentPrice,
+      changePct24h: parseFloat(ticker.priceChangePercent),
+      quoteVolumeRank: quoteRank,
+      volumeRank: volRank,
+      high90d,
+      dropFromHighPct: Math.round(dropPct * 100) / 100,
+      macd: Math.round(lastMacd * 1e6) / 1e6,
+      macdSignal: Math.round(lastSignal * 1e6) / 1e6,
+      macdCrossType: found ? crossType : "-",
+      macdCrossBarsAgo: found ? barsAgo : -1,
+      signals,
+      score,
+      macdMatch: found,
+      dropMatch,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let index = 0;
+
+  async function worker() {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+export function validateConfig(config: ScannerConfig): string | null {
+  if (config.lookbackMin > config.lookbackMax) {
+    return "MACD '최소 봉'은 '최대 봉'보다 작거나 같아야 합니다.";
+  }
+  if (config.minDropPct > config.maxDropPct) {
+    return "'최대 하락%'는 '최소 하락%'보다 작거나 같아야 합니다. (예: -35 ~ -10)";
+  }
+  if (!config.detectGoldenCross && !config.detectZeroCross) {
+    return "골든크로스 또는 0선 돌파 중 하나 이상을 선택하세요.";
+  }
+  if (config.resultTopN < 1 || config.resultTopN > 100) {
+    return "표시 개수는 1~100 사이여야 합니다.";
+  }
+  return null;
+}
+
+export async function scan(
+  config: ScannerConfig,
+): Promise<{ results: CoinResult[]; candidates: number; fullMatch: number }> {
+  const tickers = await binanceGet<Ticker24h[]>("/fapi/v1/ticker/24hr");
+  const usdtTickers = tickers.filter((t) => t.symbol.endsWith("USDT"));
+
+  const quoteSorted = [...usdtTickers].sort(
+    (a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume),
+  );
+  const volSorted = [...usdtTickers].sort(
+    (a, b) => parseFloat(b.volume) - parseFloat(a.volume),
+  );
+
+  const quoteRanks = new Map<string, number>();
+  const volRanks = new Map<string, number>();
+
+  quoteSorted.forEach((t, i) => quoteRanks.set(t.symbol, i + 1));
+  volSorted.forEach((t, i) => volRanks.set(t.symbol, i + 1));
+
+  // 거래대금·거래량 상위 N 합집합 전체 스캔
+  const candidateSet = new Set<string>();
+  quoteSorted.slice(0, config.quoteVolumeTopN).forEach((t) => candidateSet.add(t.symbol));
+  volSorted.slice(0, config.volumeTopN).forEach((t) => candidateSet.add(t.symbol));
+
+  const candidates = [...candidateSet];
+  const tickerMap = new Map(usdtTickers.map((t) => [t.symbol, t]));
+
+  const analyzed = await mapWithConcurrency(candidates, 12, async (sym) => {
+    const ticker = tickerMap.get(sym)!;
+    const quoteRank = quoteRanks.get(sym) ?? 999;
+    const volRank = volRanks.get(sym) ?? 999;
+    return analyzeSymbol(sym, ticker, quoteRank, volRank, config);
+  });
+
+  const ranked = analyzed
+    .filter((r): r is AnalyzedRow => r !== null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, config.resultTopN)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+
+  const fullMatch = ranked.filter((r) => r.macdMatch && r.dropMatch).length;
+
+  return { results: ranked, candidates: candidates.length, fullMatch };
+}

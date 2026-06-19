@@ -1,0 +1,22 @@
+# MACD 설정 (5분봉)
+macd:
+  fast_period: 12
+  slow_period: 26
+  signal_period: 9
+  # 골든크로스 또는 0선 돌파 감지 범위 (최근 N봉 이내)
+  lookback_candles_min: 1
+  lookback_candles_max: 5
+  # 감지할 신호: golden_cross, zero_cross (둘 다 true면 OR 조건)
+  detect_golden_cross: true
+  detect_zero_cross: true
+
+# 90일 최고가 대비 하락률 범위
+price_from_high:
+  days: 90
+  min_drop_pct: -35   # 최고가 대비 -35% (더 많이 하락)
+  max_drop_pct: -10   # 최고가 대비 -10% (덜 하락)
+
+# 거래량 필터
+volume:
+  quote_volume_top_n: 100   # 거래대금(USDT) 상위 N
+  volume_top_n: 100         # 거래량 상위 N
