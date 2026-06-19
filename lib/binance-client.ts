@@ -59,7 +59,17 @@ export async function binanceFapiGet<T>(
       });
 
       if (res.ok) {
-        return res.json() as Promise<T>;
+        const text = await res.text();
+        if (!text.trim()) {
+          lastError = "empty response";
+          continue;
+        }
+        try {
+          return JSON.parse(text) as T;
+        } catch {
+          lastError = "invalid json";
+          continue;
+        }
       }
 
       lastStatus = res.status;

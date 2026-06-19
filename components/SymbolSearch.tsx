@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchJson } from "@/lib/http";
 import { addRecentSearch, loadFavorites, loadRecentSearches, toggleFavorite } from "@/lib/storage";
 import type { RecentSearch, SymbolInfo } from "@/lib/types";
 
@@ -37,8 +38,7 @@ export function SymbolSearch({ onSelect }: Props) {
     setLoading(true);
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
-      const res = await fetch(`/api/symbols${params}`);
-      const data = await res.json();
+      const data = await fetchJson<{ symbols?: SymbolInfo[] }>(`/api/symbols${params}`);
       setResults(data.symbols ?? []);
     } catch {
       setResults([]);
@@ -154,8 +154,9 @@ function RecentChip({
 }) {
   const handleClick = async () => {
     try {
-      const res = await fetch(`/api/prices?symbols=${item.symbol}`);
-      const data = await res.json();
+      const data = await fetchJson<{ prices?: { symbol: string; price: number; changePct24h: number }[] }>(
+        `/api/prices?symbols=${item.symbol}`,
+      );
       const p = data.prices?.[0];
       onSelect({
         symbol: item.symbol,
@@ -198,8 +199,7 @@ function FavoriteChip({
   const [price, setPrice] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(`/api/prices?symbols=${symbol}`)
-      .then((r) => r.json())
+    fetchJson<{ prices?: { price: number }[] }>(`/api/prices?symbols=${symbol}`)
       .then((d) => {
         if (d.prices?.[0]) setPrice(d.prices[0].price);
       })

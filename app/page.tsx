@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ScanHistoryPanel } from "@/components/ScanHistoryPanel";
 import { ResultsTable } from "@/components/ResultsTable";
 import { SymbolSearch } from "@/components/SymbolSearch";
+import { fetchJson } from "@/lib/http";
 import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG } from "@/lib/default-config";
 import { calcProfitSimulation, enrichWithPrevPrices } from "@/lib/profit";
 import {
@@ -93,10 +94,15 @@ export default function Home() {
       const currentPrices = new Map(current.results.map((r) => [r.symbol, r.price]));
       const missing = prev.results.map((r) => r.symbol).filter((s) => !currentPrices.has(s));
       if (missing.length > 0) {
-        const priceRes = await fetch(`/api/prices?symbols=${missing.join(",")}`);
-        const priceData = await priceRes.json();
-        for (const p of priceData.prices ?? []) {
-          currentPrices.set(p.symbol, p.price);
+        try {
+          const priceData = await fetchJson<{ prices?: { symbol: string; price: number }[] }>(
+            `/api/prices?symbols=${missing.join(",")}`,
+          );
+          for (const p of priceData.prices ?? []) {
+            currentPrices.set(p.symbol, p.price);
+          }
+        } catch {
+          /* 가격 조회 실패 시 기록된 가격 사용 */
         }
       }
       setProfitSim(
@@ -144,19 +150,11 @@ export default function Home() {
     const prevScan = prevHistory[0] ?? null;
 
     try {
-      const res = await fetch("/api/scan", {
+      const scanData = await fetchJson<ScanResponse>("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error ?? "스캔 실패");
-        return;
-      }
-
-      const scanData = data as ScanResponse;
 
       const enriched = enrichWithPrevPrices(
         scanData.results,
@@ -181,8 +179,8 @@ export default function Home() {
         const updatedHistory = loadScanHistory();
         await recalcProfit(investAmount, updatedHistory);
       }
-    } catch {
-      setError("네트워크 오류가 발생했습니다.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "네트워크 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
