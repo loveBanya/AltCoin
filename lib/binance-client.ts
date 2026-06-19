@@ -7,14 +7,15 @@ const FUTURES_MIRRORS = [
   "https://fapi3.binance.com",
 ];
 
-/** 바이낸스 공식 Spot API 미러 (General API Information) */
+/** Spot: 공개 시장 데이터 전용(지역 제한 완화) + 공식 미러 */
 const SPOT_MIRRORS = [
-  "https://api.binance.com",
+  "https://data-api.binance.vision",
   "https://api-gcp.binance.com",
   "https://api1.binance.com",
   "https://api2.binance.com",
   "https://api3.binance.com",
   "https://api4.binance.com",
+  "https://api.binance.com",
 ];
 
 export const BINANCE_PATHS = {
@@ -143,7 +144,7 @@ async function fetchFromBases<T>(
 
   throw new BinanceApiError(
     lastStatus === 451 || lastStatus === 403
-      ? `바이낸스 ${market === "spot" ? "현물" : "선물"} API 지역 제한(${lastStatus})`
+      ? `바이낸스 ${market === "spot" ? "현물" : "선물"} API 지역 차단(${lastStatus}). Vercel 서버 IP가 바이낸스에서 막힌 상태입니다. Cloudflare Worker 프록시(BINANCE_FAPI_BASE) 설정 또는 로컬(npm run dev) 실행을 권장합니다.`
       : `Binance API error: ${lastStatus || "network"} ${endpoint} (${lastError})`,
     lastStatus,
     endpoint,

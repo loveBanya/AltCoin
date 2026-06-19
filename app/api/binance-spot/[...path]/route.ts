@@ -1,7 +1,7 @@
 export const runtime = "edge";
 export const preferredRegion = "sin1";
 
-const UPSTREAM = "https://api.binance.com";
+const UPSTREAM = "https://data-api.binance.vision";
 
 async function proxy(request: Request, pathSegments: string[]) {
   const url = new URL(request.url);
