@@ -1,5 +1,5 @@
 export const runtime = "edge";
-export const preferredRegion = ["sin1", "hnd1", "syd1"];
+export const preferredRegion = "sin1";
 
 const UPSTREAM = "https://api.binance.com";
 

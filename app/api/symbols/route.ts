@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchPerpetualUsdtTickers, marketLabel } from "@/lib/binance-client";
 
 export const runtime = "nodejs";
-export const preferredRegion = ["sin1", "hnd1", "syd1"];
+export const preferredRegion = "sin1";
 
 export async function GET(request: Request) {
   try {

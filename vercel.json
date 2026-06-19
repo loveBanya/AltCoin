@@ -2,10 +2,6 @@
   "functions": {
     "app/api/scan/route.ts": {
       "maxDuration": 60
-    },
-    "app/api/binance/[...path]/route.ts": {
-      "maxDuration": 30
     }
-  },
-  "regions": ["sin1", "hnd1", "syd1"]
+  }
 }

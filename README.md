@@ -61,7 +61,9 @@ api.binance.com → api-gcp → api1~4 (바이낸스 공식 미러)
 - UI에 `USDT 선물` / `USDT 현물` 표시
 - 현물·선물은 가격/거래량이 다를 수 있음
 
-Vercel 배포 시 아시아 리전 내장 프록시(`/api/binance`, `/api/binance-spot`) 자동 사용.
+Vercel 배포 시 아시아 리전(`sin1`) 프록시(`/api/binance`, `/api/binance-spot`) 자동 사용.
+
+> **Hobby/Pro 플랜**은 `vercel.json`에 다중 `regions` 설정 불가 (배포 실패 원인)
 
 ## 레거시 (Python)
 
