@@ -50,18 +50,14 @@ export class BinanceApiError extends Error {
 }
 
 function getInternalProxyBase(market: BinanceMarket): string | null {
-  if (process.env.BINANCE_USE_INTERNAL_PROXY === "false") return null;
+  // Vercel 자기 URL 호출 시 Deployment Protection → 401 발생. 로컬 dev만 opt-in.
+  if (process.env.BINANCE_USE_INTERNAL_PROXY !== "true") return null;
   if (market === "futures" && process.env.BINANCE_FAPI_BASE?.trim()) return null;
   if (market === "spot" && process.env.BINANCE_SPOT_BASE?.trim()) return null;
 
-  const proxyPath = market === "futures" ? "binance" : "binance-spot";
-
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}/api/${proxyPath}`;
-  }
-
   if (process.env.NODE_ENV === "development") {
     const port = process.env.PORT ?? "3000";
+    const proxyPath = market === "futures" ? "binance" : "binance-spot";
     return `http://127.0.0.1:${port}/api/${proxyPath}`;
   }
 
@@ -75,7 +71,8 @@ function getBases(market: BinanceMarket): string[] {
       ? process.env.BINANCE_FAPI_BASE?.trim().replace(/\/$/, "")
       : process.env.BINANCE_SPOT_BASE?.trim().replace(/\/$/, "");
   const internal = getInternalProxyBase(market);
-  return [...new Set([custom, internal, ...mirrors].filter(Boolean))] as string[];
+  // 바이낸스 직접 호출 우선, 프록시는 마지막
+  return [...new Set([custom, ...mirrors, internal].filter(Boolean))] as string[];
 }
 
 function buildUrl(base: string, endpoint: string, params?: Record<string, string | number>): string {
@@ -123,8 +120,8 @@ async function fetchFromBases<T>(
       }
 
       lastStatus = res.status;
-      if (res.status === 451 || res.status === 403) {
-        lastError = `지역 제한 (${res.status})`;
+      if (res.status === 401 || res.status === 451 || res.status === 403) {
+        lastError = res.status === 401 ? "인증/접근 거부 (401)" : `지역 제한 (${res.status})`;
         continue;
       }
       if (res.status >= 500) {
@@ -174,9 +171,10 @@ export async function binanceAutoGet<T>(
     const data = await binanceMarketFetch<T>("futures", resource, params, options);
     return { data, market: "futures" };
   } catch (err) {
-    const isBlocked =
-      err instanceof BinanceApiError && (err.status === 451 || err.status === 403);
-    if (!isBlocked) throw err;
+    const retryable =
+      err instanceof BinanceApiError &&
+      (err.status === 401 || err.status === 451 || err.status === 403);
+    if (!retryable) throw err;
   }
 
   const data = await binanceMarketFetch<T>("spot", resource, params, options);
@@ -258,9 +256,10 @@ export async function fetchPerpetualUsdtTickers(): Promise<{
       market: "futures",
     };
   } catch (err) {
-    const isBlocked =
-      err instanceof BinanceApiError && (err.status === 451 || err.status === 403);
-    if (!isBlocked) throw err;
+    const retryable =
+      err instanceof BinanceApiError &&
+      (err.status === 401 || err.status === 451 || err.status === 403);
+    if (!retryable) throw err;
   }
 
   const [info, tickers] = await Promise.all([
