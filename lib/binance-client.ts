@@ -1,31 +1,81 @@
-const DEFAULT_BASES = [
+export type BinanceMarket = "futures" | "spot";
+
+const FUTURES_MIRRORS = [
   "https://fapi.binance.com",
   "https://fapi1.binance.com",
   "https://fapi2.binance.com",
   "https://fapi3.binance.com",
 ];
 
-function getInternalProxyBase(): string | null {
+/** 바이낸스 공식 Spot API 미러 (General API Information) */
+const SPOT_MIRRORS = [
+  "https://api.binance.com",
+  "https://api-gcp.binance.com",
+  "https://api1.binance.com",
+  "https://api2.binance.com",
+  "https://api3.binance.com",
+  "https://api4.binance.com",
+];
+
+export const BINANCE_PATHS = {
+  futures: {
+    ticker24hr: "/fapi/v1/ticker/24hr",
+    klines: "/fapi/v1/klines",
+    exchangeInfo: "/fapi/v1/exchangeInfo",
+  },
+  spot: {
+    ticker24hr: "/api/v3/ticker/24hr",
+    klines: "/api/v3/klines",
+    exchangeInfo: "/api/v3/exchangeInfo",
+  },
+} as const;
+
+export type BinanceResource = keyof typeof BINANCE_PATHS.futures;
+
+const FETCH_HEADERS = {
+  "User-Agent": "altcoin-scanner/1.0",
+  Accept: "application/json",
+};
+
+export class BinanceApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public endpoint: string,
+    public market?: BinanceMarket,
+  ) {
+    super(message);
+    this.name = "BinanceApiError";
+  }
+}
+
+function getInternalProxyBase(market: BinanceMarket): string | null {
   if (process.env.BINANCE_USE_INTERNAL_PROXY === "false") return null;
-  if (process.env.BINANCE_FAPI_BASE?.trim()) return null;
+  if (market === "futures" && process.env.BINANCE_FAPI_BASE?.trim()) return null;
+  if (market === "spot" && process.env.BINANCE_SPOT_BASE?.trim()) return null;
+
+  const proxyPath = market === "futures" ? "binance" : "binance-spot";
 
   if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}/api/binance`;
+    return `https://${process.env.VERCEL_URL}/api/${proxyPath}`;
   }
 
   if (process.env.NODE_ENV === "development") {
     const port = process.env.PORT ?? "3000";
-    return `http://127.0.0.1:${port}/api/binance`;
+    return `http://127.0.0.1:${port}/api/${proxyPath}`;
   }
 
   return null;
 }
 
-function getBaseUrls(): string[] {
-  const custom = process.env.BINANCE_FAPI_BASE?.trim().replace(/\/$/, "");
-  const internal = getInternalProxyBase();
-  const ordered = [custom, internal, ...DEFAULT_BASES].filter(Boolean) as string[];
-  return [...new Set(ordered)];
+function getBases(market: BinanceMarket): string[] {
+  const mirrors = market === "futures" ? FUTURES_MIRRORS : SPOT_MIRRORS;
+  const custom =
+    market === "futures"
+      ? process.env.BINANCE_FAPI_BASE?.trim().replace(/\/$/, "")
+      : process.env.BINANCE_SPOT_BASE?.trim().replace(/\/$/, "");
+  const internal = getInternalProxyBase(market);
+  return [...new Set([custom, internal, ...mirrors].filter(Boolean))] as string[];
 }
 
 function buildUrl(base: string, endpoint: string, params?: Record<string, string | number>): string {
@@ -39,28 +89,13 @@ function buildUrl(base: string, endpoint: string, params?: Record<string, string
   return url.toString();
 }
 
-const FETCH_HEADERS = {
-  "User-Agent": "altcoin-scanner/1.0",
-  Accept: "application/json",
-};
-
-export class BinanceApiError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-    public endpoint: string,
-  ) {
-    super(message);
-    this.name = "BinanceApiError";
-  }
-}
-
-export async function binanceFapiGet<T>(
+async function fetchFromBases<T>(
+  bases: string[],
   endpoint: string,
   params?: Record<string, string | number>,
   options?: { revalidate?: number },
+  market?: BinanceMarket,
 ): Promise<T> {
-  const bases = getBaseUrls();
   let lastStatus = 0;
   let lastError = "";
 
@@ -92,7 +127,6 @@ export async function binanceFapiGet<T>(
         lastError = `지역 제한 (${res.status})`;
         continue;
       }
-
       if (res.status >= 500) {
         lastError = `서버 오류 (${res.status})`;
         continue;
@@ -102,6 +136,7 @@ export async function binanceFapiGet<T>(
         `Binance API error: ${res.status} ${endpoint}`,
         res.status,
         endpoint,
+        market,
       );
     } catch (err) {
       if (err instanceof BinanceApiError) throw err;
@@ -111,34 +146,79 @@ export async function binanceFapiGet<T>(
 
   throw new BinanceApiError(
     lastStatus === 451 || lastStatus === 403
-      ? "바이낸스 API 지역 제한(451). Vercel Redeploy 후에도 실패하면 BINANCE_FAPI_BASE에 Cloudflare Worker URL을 설정하세요."
+      ? `바이낸스 ${market === "spot" ? "현물" : "선물"} API 지역 제한(${lastStatus})`
       : `Binance API error: ${lastStatus || "network"} ${endpoint} (${lastError})`,
     lastStatus,
     endpoint,
+    market,
   );
 }
 
-export async function binanceFapiGetText(
-  endpoint: string,
+export async function binanceMarketFetch<T>(
+  market: BinanceMarket,
+  resource: BinanceResource,
   params?: Record<string, string | number>,
-): Promise<Response> {
-  const bases = getBaseUrls();
-  let lastStatus = 0;
+  options?: { revalidate?: number },
+): Promise<T> {
+  const endpoint = BINANCE_PATHS[market][resource];
+  return fetchFromBases<T>(getBases(market), endpoint, params, options, market);
+}
 
-  for (const base of bases) {
-    const url = buildUrl(base, endpoint, params);
-    const res = await fetch(url, { headers: FETCH_HEADERS, cache: "no-store" });
-    if (res.ok) return res;
-    lastStatus = res.status;
-    if (res.status === 451 || res.status === 403 || res.status >= 500) continue;
-    return res;
+/** 선물 API 우선 → 451이면 Spot API(api.binance.com 등) 자동 전환 */
+export async function binanceAutoGet<T>(
+  resource: BinanceResource,
+  params?: Record<string, string | number>,
+  options?: { revalidate?: number },
+): Promise<{ data: T; market: BinanceMarket }> {
+  try {
+    const data = await binanceMarketFetch<T>("futures", resource, params, options);
+    return { data, market: "futures" };
+  } catch (err) {
+    const isBlocked =
+      err instanceof BinanceApiError && (err.status === 451 || err.status === 403);
+    if (!isBlocked) throw err;
   }
 
-  throw new BinanceApiError(
-    lastStatus === 451
-      ? "바이낸스 API 지역 제한(451). BINANCE_FAPI_BASE 환경변수에 프록시 URL을 설정하세요."
-      : `Binance API error: ${lastStatus} ${endpoint}`,
-    lastStatus,
-    endpoint,
+  const data = await binanceMarketFetch<T>("spot", resource, params, options);
+  return { data, market: "spot" };
+}
+
+/** @deprecated binanceAutoGet 사용 권장 */
+export async function binanceFapiGet<T>(
+  endpoint: string,
+  params?: Record<string, string | number>,
+  options?: { revalidate?: number },
+): Promise<T> {
+  const resource = endpointToResource(endpoint);
+  const { data } = await binanceAutoGet<T>(resource, params, options);
+  return data;
+}
+
+function endpointToResource(endpoint: string): BinanceResource {
+  if (endpoint.includes("klines")) return "klines";
+  if (endpoint.includes("exchangeInfo")) return "exchangeInfo";
+  return "ticker24hr";
+}
+
+export function isUsdtSymbol(symbol: string, market: BinanceMarket): boolean {
+  if (!symbol.endsWith("USDT")) return false;
+  if (market === "futures") return true;
+  return !symbol.includes("_");
+}
+
+export function filterExchangeSymbols<
+  T extends { symbol: string; quoteAsset: string; status: string; contractType?: string },
+>(symbols: T[], market: BinanceMarket): T[] {
+  if (market === "futures") {
+    return symbols.filter(
+      (s) => s.contractType === "PERPETUAL" && s.quoteAsset === "USDT" && s.status === "TRADING",
+    );
+  }
+  return symbols.filter(
+    (s) => s.quoteAsset === "USDT" && s.status === "TRADING" && isUsdtSymbol(s.symbol, "spot"),
   );
+}
+
+export function marketLabel(market: BinanceMarket): string {
+  return market === "futures" ? "USDT 선물" : "USDT 현물";
 }

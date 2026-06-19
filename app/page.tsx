@@ -79,7 +79,7 @@ export default function Home() {
   const [results, setResults] = useState<CoinResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [meta, setMeta] = useState<{ candidates: number; scannedAt: string; fullMatch: number } | null>(null);
+  const [meta, setMeta] = useState<{ candidates: number; scannedAt: string; fullMatch: number; marketLabel?: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<SymbolInfo | null>(null);
   const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[]>([]);
@@ -166,6 +166,7 @@ export default function Home() {
         candidates: scanData.candidates,
         scannedAt: scanData.scannedAt,
         fullMatch: scanData.fullMatch ?? 0,
+        marketLabel: scanData.marketLabel,
       });
 
       const historyResults = scanData.results.map((r) => ({
@@ -306,6 +307,11 @@ export default function Home() {
             <span className="rounded-full bg-blue-950 px-3 py-1 text-blue-400">
               조건 완전 충족 {meta.fullMatch}개
             </span>
+            {meta.marketLabel && (
+              <span className="rounded-full bg-amber-950 px-3 py-1 text-amber-400">
+                {meta.marketLabel} 데이터
+              </span>
+            )}
             <span className="text-zinc-500">전체 스캔 {meta.candidates}개</span>
             <span className="text-zinc-500">{new Date(meta.scannedAt).toLocaleString("ko-KR")}</span>
             {scanHistory.length >= 2 && (

@@ -42,6 +42,8 @@ export interface ScanResponse {
   scannedAt: string;
   candidates: number;
   fullMatch: number;
+  market: "futures" | "spot";
+  marketLabel?: string;
 }
 
 export interface ScanError {

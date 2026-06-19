@@ -49,29 +49,19 @@ vercel
 
 API Route는 최대 60초 실행 (`vercel.json` + `maxDuration`).
 
-## API 451 지역 제한 오류
+## API 451 지역 제한
 
-`Binance API error: 451` 은 바이낸스가 **미국 등 특정 IP**에서 Futures API 접근을 차단할 때 발생합니다.
+선물 API(`fapi.binance.com`)가 451이면 **Spot API**로 자동 전환합니다.
 
-### 자동 해결 (Vercel 배포)
+```
+api.binance.com → api-gcp → api1~4 (바이낸스 공식 미러)
+```
 
-이 프로젝트는 **싱가포르/도쿄 리전** + **내장 프록시**(`/api/binance`)를 자동 사용합니다.
-별도 설정 없이 Vercel에 배포하면 대부분 해결됩니다.
+- **선물 우선** → 차단 시 **USDT 현물** 데이터 사용
+- UI에 `USDT 선물` / `USDT 현물` 표시
+- 현물·선물은 가격/거래량이 다를 수 있음
 
-GitHub 푸시 후 Vercel **Redeploy** 하세요.
-
-### 로컬 개발
-
-로컬에서도 `npm run dev` 실행 시 `http://127.0.0.1:3000/api/binance` 프록시를 자동 사용합니다.
-
-### 수동 프록시 (그래도 451일 때)
-
-1. **Cloudflare Worker** — `proxy/cloudflare-worker.ts` 배포
-2. Vercel Environment Variables:
-   ```
-   BINANCE_FAPI_BASE=https://your-worker.workers.dev
-   ```
-3. Redeploy
+Vercel 배포 시 아시아 리전 내장 프록시(`/api/binance`, `/api/binance-spot`) 자동 사용.
 
 ## 레거시 (Python)
 

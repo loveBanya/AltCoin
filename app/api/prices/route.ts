@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { binanceFapiGet } from "@/lib/binance-client";
+import { binanceAutoGet, marketLabel } from "@/lib/binance-client";
 
 interface Ticker24h {
   symbol: string;
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ prices: [] });
     }
 
-    const tickers = await binanceFapiGet<Ticker24h[]>("/fapi/v1/ticker/24hr");
+    const { data: tickers, market } = await binanceAutoGet<Ticker24h[]>("ticker24hr");
     const wanted = new Set(requested);
 
     const prices = tickers
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
         changePct24h: parseFloat(t.priceChangePercent),
       }));
 
-    return NextResponse.json({ prices });
+    return NextResponse.json({ prices, market, marketLabel: marketLabel(market) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "가격 조회 실패";
     return NextResponse.json({ error: message }, { status: 502 });

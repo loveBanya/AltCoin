@@ -1,5 +1,5 @@
 import type { CoinResult, ScannerConfig } from "./types";
-import { binanceFapiGet } from "./binance-client";
+import { binanceAutoGet, binanceMarketFetch, type BinanceMarket } from "./binance-client";
 
 interface Ticker24h {
   symbol: string;
@@ -13,10 +13,6 @@ type Kline = [number, string, string, string, string, string, ...unknown[]];
 
 interface AnalyzedRow extends Omit<CoinResult, "rank"> {
   score: number;
-}
-
-async function binanceGet<T>(endpoint: string, params?: Record<string, string | number>): Promise<T> {
-  return binanceFapiGet<T>(endpoint, params);
 }
 
 function ema(values: number[], span: number): number[] {
@@ -116,8 +112,13 @@ function scoreCoin(
   return score;
 }
 
-async function getKlines(symbol: string, interval: string, limit: number): Promise<Kline[]> {
-  return binanceGet<Kline[]>("/fapi/v1/klines", { symbol, interval, limit });
+async function getKlines(
+  symbol: string,
+  interval: string,
+  limit: number,
+  market: BinanceMarket,
+): Promise<Kline[]> {
+  return binanceMarketFetch<Kline[]>(market, "klines", { symbol, interval, limit });
 }
 
 async function analyzeSymbol(
@@ -126,11 +127,12 @@ async function analyzeSymbol(
   quoteRank: number,
   volRank: number,
   config: ScannerConfig,
+  market: BinanceMarket,
 ): Promise<AnalyzedRow | null> {
   try {
     const [klines5m, klines1d] = await Promise.all([
-      getKlines(symbol, "5m", 200),
-      getKlines(symbol, "1d", config.highDays),
+      getKlines(symbol, "5m", 200, market),
+      getKlines(symbol, "1d", config.highDays, market),
     ]);
 
     if (!klines5m.length || !klines1d.length) return null;
@@ -224,8 +226,8 @@ export function validateConfig(config: ScannerConfig): string | null {
 
 export async function scan(
   config: ScannerConfig,
-): Promise<{ results: CoinResult[]; candidates: number; fullMatch: number }> {
-  const tickers = await binanceGet<Ticker24h[]>("/fapi/v1/ticker/24hr");
+): Promise<{ results: CoinResult[]; candidates: number; fullMatch: number; market: BinanceMarket }> {
+  const { data: tickers, market } = await binanceAutoGet<Ticker24h[]>("ticker24hr");
   const usdtTickers = tickers.filter((t) => t.symbol.endsWith("USDT"));
 
   const quoteSorted = [...usdtTickers].sort(
@@ -253,7 +255,7 @@ export async function scan(
     const ticker = tickerMap.get(sym)!;
     const quoteRank = quoteRanks.get(sym) ?? 999;
     const volRank = volRanks.get(sym) ?? 999;
-    return analyzeSymbol(sym, ticker, quoteRank, volRank, config);
+    return analyzeSymbol(sym, ticker, quoteRank, volRank, config, market);
   });
 
   const ranked = analyzed
@@ -264,5 +266,5 @@ export async function scan(
 
   const fullMatch = ranked.filter((r) => r.macdMatch && r.dropMatch).length;
 
-  return { results: ranked, candidates: candidates.length, fullMatch };
+  return { results: ranked, candidates: candidates.length, fullMatch, market };
 }

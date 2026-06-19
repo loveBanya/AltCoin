@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
-import { binanceFapiGet } from "@/lib/binance-client";
+import {
+  binanceAutoGet,
+  binanceMarketFetch,
+  filterExchangeSymbols,
+  marketLabel,
+} from "@/lib/binance-client";
 
 interface ExchangeSymbol {
   symbol: string;
   baseAsset: string;
-  contractType: string;
+  contractType?: string;
   quoteAsset: string;
   status: string;
 }
@@ -24,22 +29,19 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q")?.toUpperCase().replace(/USDT$/i, "") ?? "";
 
-    const [info, tickers] = await Promise.all([
-      binanceFapiGet<{ symbols: ExchangeSymbol[] }>("/fapi/v1/exchangeInfo", undefined, {
-        revalidate: 3600,
-      }),
-      binanceFapiGet<Ticker24h[]>("/fapi/v1/ticker/24hr"),
-    ]);
+    const tickerResult = await binanceAutoGet<Ticker24h[]>("ticker24hr");
+    const market = tickerResult.market;
+    const info = await binanceMarketFetch<{ symbols: ExchangeSymbol[] }>(
+      market,
+      "exchangeInfo",
+      undefined,
+      { revalidate: 3600 },
+    );
+    const tickers = tickerResult.data;
 
     const tickerMap = new Map(tickers.map((t) => [t.symbol, t]));
 
-    let symbols = info.symbols
-      .filter(
-        (s) =>
-          s.contractType === "PERPETUAL" &&
-          s.quoteAsset === "USDT" &&
-          s.status === "TRADING",
-      )
+    let symbols = filterExchangeSymbols(info.symbols, market)
       .map((s) => {
         const ticker = tickerMap.get(s.symbol);
         return {
@@ -56,7 +58,11 @@ export async function GET(request: Request) {
       symbols = symbols.filter((s) => s.baseAsset.includes(q));
     }
 
-    return NextResponse.json({ symbols: symbols.slice(0, q ? 30 : 500) });
+    return NextResponse.json({
+      symbols: symbols.slice(0, q ? 30 : 500),
+      market,
+      marketLabel: marketLabel(market),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "종목 조회 실패";
     return NextResponse.json({ error: message }, { status: 502 });
