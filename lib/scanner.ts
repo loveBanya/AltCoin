@@ -1,13 +1,12 @@
 import type { CoinResult, ScannerConfig } from "./types";
-import { binanceAutoGet, binanceMarketFetch, type BinanceMarket } from "./binance-client";
+import {
+  binanceMarketFetch,
+  fetchPerpetualUsdtTickers,
+  type BinanceMarket,
+  type Ticker24hRow,
+} from "./binance-client";
 
-interface Ticker24h {
-  symbol: string;
-  lastPrice: string;
-  quoteVolume: string;
-  volume: string;
-  priceChangePercent: string;
-}
+type Ticker24h = Ticker24hRow;
 
 type Kline = [number, string, string, string, string, string, ...unknown[]];
 
@@ -226,9 +225,15 @@ export function validateConfig(config: ScannerConfig): string | null {
 
 export async function scan(
   config: ScannerConfig,
-): Promise<{ results: CoinResult[]; candidates: number; fullMatch: number; market: BinanceMarket }> {
-  const { data: tickers, market } = await binanceAutoGet<Ticker24h[]>("ticker24hr");
-  const usdtTickers = tickers.filter((t) => t.symbol.endsWith("USDT"));
+): Promise<{
+  results: CoinResult[];
+  candidates: number;
+  fullMatch: number;
+  market: BinanceMarket;
+  tickerCount: number;
+}> {
+  const { tickers: usdtTickers, market } = await fetchPerpetualUsdtTickers();
+  const tickerCount = usdtTickers.length;
 
   const quoteSorted = [...usdtTickers].sort(
     (a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume),
@@ -243,10 +248,14 @@ export async function scan(
   quoteSorted.forEach((t, i) => quoteRanks.set(t.symbol, i + 1));
   volSorted.forEach((t, i) => volRanks.set(t.symbol, i + 1));
 
-  // 거래대금·거래량 상위 N 합집합 전체 스캔
   const candidateSet = new Set<string>();
-  quoteSorted.slice(0, config.quoteVolumeTopN).forEach((t) => candidateSet.add(t.symbol));
-  volSorted.slice(0, config.volumeTopN).forEach((t) => candidateSet.add(t.symbol));
+
+  if (config.scanAllPerpetuals) {
+    usdtTickers.forEach((t) => candidateSet.add(t.symbol));
+  } else {
+    quoteSorted.slice(0, config.quoteVolumeTopN).forEach((t) => candidateSet.add(t.symbol));
+    volSorted.slice(0, config.volumeTopN).forEach((t) => candidateSet.add(t.symbol));
+  }
 
   const candidates = [...candidateSet];
   const tickerMap = new Map(usdtTickers.map((t) => [t.symbol, t]));
@@ -266,5 +275,5 @@ export async function scan(
 
   const fullMatch = ranked.filter((r) => r.macdMatch && r.dropMatch).length;
 
-  return { results: ranked, candidates: candidates.length, fullMatch, market };
+  return { results: ranked, candidates: candidates.length, fullMatch, market, tickerCount };
 }

@@ -12,6 +12,8 @@ export interface ScannerConfig {
   quoteVolumeTopN: number;
   volumeTopN: number;
   resultTopN: number;
+  /** true면 거래량 상위 N 무시하고 USDT 무기한 선물 전 종목 스캔 */
+  scanAllPerpetuals: boolean;
 }
 
 export interface CoinResult {
@@ -44,6 +46,8 @@ export interface ScanResponse {
   fullMatch: number;
   market: "futures" | "spot";
   marketLabel?: string;
+  /** USDT 무기한 선물 24h 티커 전체 개수 */
+  tickerCount?: number;
 }
 
 export interface ScanError {

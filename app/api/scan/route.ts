@@ -15,13 +15,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error }, { status: 400 });
     }
 
-    const { results, candidates, fullMatch, market } = await scan(config);
+    const { results, candidates, fullMatch, market, tickerCount } = await scan(config);
 
     return NextResponse.json({
       results,
       count: results.length,
       candidates,
       fullMatch,
+      tickerCount,
       market,
       marketLabel: marketLabel(market),
       scannedAt: new Date().toISOString(),

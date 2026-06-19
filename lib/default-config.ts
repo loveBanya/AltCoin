@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: ScannerConfig = {
   quoteVolumeTopN: 100,
   volumeTopN: 100,
   resultTopN: 30,
+  scanAllPerpetuals: false,
 };
 
 export const CONFIG_STORAGE_KEY = "altcoin-scanner-config";

@@ -222,3 +222,60 @@ export function filterExchangeSymbols<
 export function marketLabel(market: BinanceMarket): string {
   return market === "futures" ? "USDT 선물" : "USDT 현물";
 }
+
+interface ExchangeSymbol {
+  symbol: string;
+  quoteAsset: string;
+  status: string;
+  contractType?: string;
+}
+
+interface Ticker24hRow {
+  symbol: string;
+  lastPrice: string;
+  quoteVolume: string;
+  volume: string;
+  priceChangePercent: string;
+}
+
+/** /fapi/v1/ticker/24hr 심볼 없이 호출 → USDT 무기한 선물 24h 티커 전체 */
+export async function fetchPerpetualUsdtTickers(): Promise<{
+  tickers: Ticker24hRow[];
+  market: BinanceMarket;
+}> {
+  try {
+    const [info, tickers] = await Promise.all([
+      binanceMarketFetch<{ symbols: ExchangeSymbol[] }>("futures", "exchangeInfo", undefined, {
+        revalidate: 3600,
+      }),
+      binanceMarketFetch<Ticker24hRow[]>("futures", "ticker24hr"),
+    ]);
+    const perpetual = new Set(
+      filterExchangeSymbols(info.symbols, "futures").map((s) => s.symbol),
+    );
+    return {
+      tickers: tickers.filter((t) => perpetual.has(t.symbol)),
+      market: "futures",
+    };
+  } catch (err) {
+    const isBlocked =
+      err instanceof BinanceApiError && (err.status === 451 || err.status === 403);
+    if (!isBlocked) throw err;
+  }
+
+  const [info, tickers] = await Promise.all([
+    binanceMarketFetch<{ symbols: ExchangeSymbol[] }>("spot", "exchangeInfo", undefined, {
+      revalidate: 3600,
+    }),
+    binanceMarketFetch<Ticker24hRow[]>("spot", "ticker24hr"),
+  ]);
+  const spotUsdt = new Set(
+    filterExchangeSymbols(info.symbols, "spot").map((s) => s.symbol),
+  );
+  return {
+    tickers: tickers.filter((t) => spotUsdt.has(t.symbol)),
+    market: "spot",
+  };
+}
+
+export type { Ticker24hRow };

@@ -79,7 +79,13 @@ export default function Home() {
   const [results, setResults] = useState<CoinResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [meta, setMeta] = useState<{ candidates: number; scannedAt: string; fullMatch: number; marketLabel?: string } | null>(null);
+  const [meta, setMeta] = useState<{
+    candidates: number;
+    scannedAt: string;
+    fullMatch: number;
+    marketLabel?: string;
+    tickerCount?: number;
+  } | null>(null);
   const [saved, setSaved] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<SymbolInfo | null>(null);
   const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[]>([]);
@@ -167,6 +173,7 @@ export default function Home() {
         scannedAt: scanData.scannedAt,
         fullMatch: scanData.fullMatch ?? 0,
         marketLabel: scanData.marketLabel,
+        tickerCount: scanData.tickerCount,
       });
 
       const historyResults = scanData.results.map((r) => ({
@@ -241,6 +248,18 @@ export default function Home() {
             <NumInput label="거래대금 상위 N" value={config.quoteVolumeTopN} onChange={(v) => update("quoteVolumeTopN", v)} min={10} max={500} />
             <NumInput label="거래량 상위 N" value={config.volumeTopN} onChange={(v) => update("volumeTopN", v)} min={10} max={500} />
             <NumInput label="표시 상위 N" value={config.resultTopN ?? 30} onChange={(v) => update("resultTopN", v)} min={1} max={100} hint="전체 스캔 후 점수순 상위 N개" />
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={config.scanAllPerpetuals ?? false}
+                onChange={(e) => update("scanAllPerpetuals", e.target.checked)}
+                className="accent-emerald-500"
+              />
+              전체 USDT 무기한 선물 스캔 (24h 티커 전 종목)
+            </label>
+            {config.scanAllPerpetuals && (
+              <p className="text-xs text-amber-500">종목 많으면 60초 초과 가능. 표시 상위 N만 줄이세요.</p>
+            )}
           </div>
         </section>
 
@@ -313,6 +332,9 @@ export default function Home() {
               </span>
             )}
             <span className="text-zinc-500">전체 스캔 {meta.candidates}개</span>
+            {meta.tickerCount !== undefined && (
+              <span className="text-zinc-500">24h 티커 {meta.tickerCount}개</span>
+            )}
             <span className="text-zinc-500">{new Date(meta.scannedAt).toLocaleString("ko-KR")}</span>
             {scanHistory.length >= 2 && (
               <span className="text-blue-400">이전 스캔 대비 가격 비교 적용됨</span>
