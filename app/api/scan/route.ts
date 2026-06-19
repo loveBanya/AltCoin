@@ -4,6 +4,7 @@ import type { ScannerConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+export const preferredRegion = ["sin1", "hnd1", "syd1"];
 
 export async function POST(request: Request) {
   try {

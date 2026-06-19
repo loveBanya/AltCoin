@@ -5,12 +5,27 @@ const DEFAULT_BASES = [
   "https://fapi3.binance.com",
 ];
 
-function getBaseUrls(): string[] {
-  const custom = process.env.BINANCE_FAPI_BASE?.trim();
-  if (custom) {
-    return [custom.replace(/\/$/, ""), ...DEFAULT_BASES];
+function getInternalProxyBase(): string | null {
+  if (process.env.BINANCE_USE_INTERNAL_PROXY === "false") return null;
+  if (process.env.BINANCE_FAPI_BASE?.trim()) return null;
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}/api/binance`;
   }
-  return DEFAULT_BASES;
+
+  if (process.env.NODE_ENV === "development") {
+    const port = process.env.PORT ?? "3000";
+    return `http://127.0.0.1:${port}/api/binance`;
+  }
+
+  return null;
+}
+
+function getBaseUrls(): string[] {
+  const custom = process.env.BINANCE_FAPI_BASE?.trim().replace(/\/$/, "");
+  const internal = getInternalProxyBase();
+  const ordered = [custom, internal, ...DEFAULT_BASES].filter(Boolean) as string[];
+  return [...new Set(ordered)];
 }
 
 function buildUrl(base: string, endpoint: string, params?: Record<string, string | number>): string {
@@ -96,7 +111,7 @@ export async function binanceFapiGet<T>(
 
   throw new BinanceApiError(
     lastStatus === 451 || lastStatus === 403
-      ? "바이낸스 API 지역 제한(451). BINANCE_FAPI_BASE 환경변수에 프록시 URL을 설정하세요."
+      ? "바이낸스 API 지역 제한(451). Vercel Redeploy 후에도 실패하면 BINANCE_FAPI_BASE에 Cloudflare Worker URL을 설정하세요."
       : `Binance API error: ${lastStatus || "network"} ${endpoint} (${lastError})`,
     lastStatus,
     endpoint,
