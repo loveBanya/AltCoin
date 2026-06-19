@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-
-const BINANCE_FAPI = "https://fapi.binance.com";
+import { binanceFapiGet } from "@/lib/binance-client";
 
 interface ExchangeSymbol {
   symbol: string;
@@ -24,23 +23,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q")?.toUpperCase().replace(/USDT$/i, "") ?? "";
 
-    const [infoRes, tickerRes] = await Promise.all([
-      fetch(`${BINANCE_FAPI}/fapi/v1/exchangeInfo`, {
-        headers: { "User-Agent": "altcoin-scanner/1.0" },
-        next: { revalidate: 3600 },
+    const [info, tickers] = await Promise.all([
+      binanceFapiGet<{ symbols: ExchangeSymbol[] }>("/fapi/v1/exchangeInfo", undefined, {
+        revalidate: 3600,
       }),
-      fetch(`${BINANCE_FAPI}/fapi/v1/ticker/24hr`, {
-        headers: { "User-Agent": "altcoin-scanner/1.0" },
-        cache: "no-store",
-      }),
+      binanceFapiGet<Ticker24h[]>("/fapi/v1/ticker/24hr"),
     ]);
-
-    if (!infoRes.ok || !tickerRes.ok) {
-      return NextResponse.json({ error: "바이낸스 API 오류" }, { status: 502 });
-    }
-
-    const info = (await infoRes.json()) as { symbols: ExchangeSymbol[] };
-    const tickers = (await tickerRes.json()) as Ticker24h[];
 
     const tickerMap = new Map(tickers.map((t) => [t.symbol, t]));
 
@@ -68,7 +56,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ symbols: symbols.slice(0, q ? 30 : 500) });
-  } catch {
-    return NextResponse.json({ error: "종목 조회 실패" }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "종목 조회 실패";
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

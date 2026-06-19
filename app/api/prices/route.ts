@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-
-const BINANCE_FAPI = "https://fapi.binance.com";
+import { binanceFapiGet } from "@/lib/binance-client";
 
 interface Ticker24h {
   symbol: string;
@@ -24,16 +23,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ prices: [] });
     }
 
-    const res = await fetch(`${BINANCE_FAPI}/fapi/v1/ticker/24hr`, {
-      headers: { "User-Agent": "altcoin-scanner/1.0" },
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      return NextResponse.json({ error: "바이낸스 API 오류" }, { status: 502 });
-    }
-
-    const tickers = (await res.json()) as Ticker24h[];
+    const tickers = await binanceFapiGet<Ticker24h[]>("/fapi/v1/ticker/24hr");
     const wanted = new Set(requested);
 
     const prices = tickers
@@ -45,7 +35,8 @@ export async function GET(request: Request) {
       }));
 
     return NextResponse.json({ prices });
-  } catch {
-    return NextResponse.json({ error: "가격 조회 실패" }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "가격 조회 실패";
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

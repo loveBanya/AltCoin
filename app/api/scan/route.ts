@@ -24,6 +24,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "스캔 중 오류가 발생했습니다.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.includes("451") || message.includes("지역 제한") ? 451 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

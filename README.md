@@ -49,6 +49,30 @@ vercel
 
 API Route는 최대 60초 실행 (`vercel.json` + `maxDuration`).
 
+## API 451 지역 제한 오류
+
+`Binance API error: 451` 은 바이낸스가 **특정 국가/지역 IP**에서 Futures API 접근을 차단할 때 발생합니다. (한국, 미국, Vercel 서버 등)
+
+### 해결 방법
+
+1. **Cloudflare Worker 프록시** (권장)
+   - `proxy/cloudflare-worker.ts` 코드를 Cloudflare Workers에 배포
+   - Vercel / 로컬 `.env` 설정:
+   ```
+   BINANCE_FAPI_BASE=https://your-worker.workers.dev
+   ```
+
+2. **자동 fallback** — `fapi1`~`fapi3` 미러 URL을 순차 시도 (같은 지역이면 여전히 451 가능)
+
+3. **로컬 개발** — VPN(허용 지역) 사용 또는 `.env.local`에 프록시 URL 설정
+
+```bash
+cp .env.example .env.local
+# BINANCE_FAPI_BASE=https://your-proxy.workers.dev
+```
+
+Vercel 배포 시: Project Settings → Environment Variables → `BINANCE_FAPI_BASE` 추가 후 Redeploy
+
 ## 레거시 (Python)
 
 기존 Streamlit 버전은 `app.py`, `scanner.py`에 남아 있습니다.

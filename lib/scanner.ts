@@ -1,6 +1,5 @@
 import type { CoinResult, ScannerConfig } from "./types";
-
-const BINANCE_FAPI = "https://fapi.binance.com";
+import { binanceFapiGet } from "./binance-client";
 
 interface Ticker24h {
   symbol: string;
@@ -17,23 +16,7 @@ interface AnalyzedRow extends Omit<CoinResult, "rank"> {
 }
 
 async function binanceGet<T>(endpoint: string, params?: Record<string, string | number>): Promise<T> {
-  const url = new URL(`${BINANCE_FAPI}${endpoint}`);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      url.searchParams.set(k, String(v));
-    }
-  }
-
-  const res = await fetch(url.toString(), {
-    headers: { "User-Agent": "altcoin-scanner/1.0" },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    throw new Error(`Binance API error: ${res.status} ${endpoint}`);
-  }
-
-  return res.json() as Promise<T>;
+  return binanceFapiGet<T>(endpoint, params);
 }
 
 function ema(values: number[], span: number): number[] {
