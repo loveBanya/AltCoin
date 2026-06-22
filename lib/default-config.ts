@@ -15,6 +15,13 @@ export const DEFAULT_CONFIG: ScannerConfig = {
   volumeTopN: 100,
   resultTopN: 30,
   scanAllPerpetuals: false,
+  consolidationHours: 72,
+  maxConsolidationRangePct: 12,
+  pumpLookbackHours: 24,
+  minPumpPct: 8,
+  pullbackMinPct: -15,
+  pullbackMaxPct: -2,
+  pullbackSetupOnly: false,
 };
 
 export const CONFIG_STORAGE_KEY = "altcoin-scanner-config";

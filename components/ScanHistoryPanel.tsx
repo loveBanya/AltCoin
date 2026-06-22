@@ -23,6 +23,9 @@ export function ScanHistoryPanel({
 
   if (history.length === 0 && !profitSim) return null;
 
+  const winners = profitSim?.details.filter((d) => d.profitPct > 0) ?? [];
+  const losers = profitSim?.details.filter((d) => d.profitPct <= 0) ?? [];
+
   return (
     <div className="mb-6 space-y-4">
       {profitSim && profitSim.prevCount > 0 && (
@@ -45,48 +48,36 @@ export function ScanHistoryPanel({
             />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Stat label="이전 종목 수" value={`${profitSim.prevCount}개`} />
+          <div className="mb-4 grid gap-3 sm:grid-cols-4">
+            <Stat label="이전 종목" value={`${profitSim.prevCount}개`} />
             <Stat
               label="총 수익률"
               value={`${profitSim.totalReturnPct >= 0 ? "+" : ""}${profitSim.totalReturnPct}%`}
               color={profitSim.totalReturnPct >= 0 ? "text-emerald-400" : "text-red-400"}
             />
             <Stat
-              label="수익금"
-              value={`${profitSim.profitAmount >= 0 ? "+" : ""}${profitSim.profitAmount} USDT`}
-              color={profitSim.profitAmount >= 0 ? "text-emerald-400" : "text-red-400"}
+              label="수익 종목"
+              value={`${winners.length}개`}
+              color="text-emerald-400"
+            />
+            <Stat
+              label="손실 종목"
+              value={`${losers.length}개`}
+              color="text-red-400"
             />
           </div>
 
+          {winners.length > 0 && (
+            <CoinProfitSection title="수익 코인" items={winners} positive />
+          )}
+          {losers.length > 0 && (
+            <CoinProfitSection title="손실 코인" items={losers} positive={false} />
+          )}
+
           {profitSim.details.length > 0 && (
             <details className="mt-3">
-              <summary className="cursor-pointer text-sm text-blue-400">종목별 상세</summary>
-              <div className="mt-2 overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="text-zinc-500">
-                    <tr>
-                      {["심볼", "이전가", "현재가", "수익률", "투자", "평가"].map((h) => (
-                        <th key={h} className="px-2 py-1">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profitSim.details.map((d) => (
-                      <tr key={d.symbol} className="border-t border-zinc-800">
-                        <td className="px-2 py-1 text-emerald-400">{d.symbol}</td>
-                        <td className="px-2 py-1">{d.prevPrice}</td>
-                        <td className="px-2 py-1">{d.currentPrice}</td>
-                        <td className={`px-2 py-1 ${d.profitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {d.profitPct >= 0 ? "+" : ""}{d.profitPct}%
-                        </td>
-                        <td className="px-2 py-1">{d.invested.toFixed(1)}</td>
-                        <td className="px-2 py-1">{d.currentValue}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <summary className="cursor-pointer text-sm text-blue-400">전체 종목 상세</summary>
+              <ProfitTable details={profitSim.details} />
             </details>
           )}
         </div>
@@ -120,10 +111,7 @@ export function ScanHistoryPanel({
                   <div className="border-t border-zinc-800 px-3 py-2">
                     <div className="flex flex-wrap gap-2">
                       {h.results.map((r) => (
-                        <span
-                          key={r.symbol}
-                          className="rounded bg-zinc-800 px-2 py-1 text-xs"
-                        >
+                        <span key={r.symbol} className="rounded bg-zinc-800 px-2 py-1 text-xs">
                           <span className="text-emerald-400">{r.symbol}</span>
                           <span className="ml-1 text-zinc-400">{r.price}</span>
                         </span>
@@ -136,6 +124,74 @@ export function ScanHistoryPanel({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CoinProfitSection({
+  title,
+  items,
+  positive,
+}: {
+  title: string;
+  items: ProfitSimulation["details"];
+  positive: boolean;
+}) {
+  return (
+    <div className="mb-3">
+      <p className={`mb-2 text-sm font-medium ${positive ? "text-emerald-400" : "text-red-400"}`}>
+        {title} ({items.length}개)
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {items.map((d) => (
+          <div
+            key={d.symbol}
+            className={`rounded-lg border px-3 py-2 text-xs ${
+              positive
+                ? "border-emerald-800/50 bg-emerald-950/30"
+                : "border-red-800/50 bg-red-950/30"
+            }`}
+          >
+            <span className="font-medium text-white">{d.symbol}</span>
+            <span className={`ml-2 ${positive ? "text-emerald-400" : "text-red-400"}`}>
+              {d.profitPct >= 0 ? "+" : ""}{d.profitPct}%
+            </span>
+            <span className="ml-2 text-zinc-500">
+              {d.prevPrice} → {d.currentPrice}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProfitTable({ details }: { details: ProfitSimulation["details"] }) {
+  return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full text-left text-xs">
+        <thead className="text-zinc-500">
+          <tr>
+            {["심볼", "이전가", "현재가", "수익률", "투자", "평가"].map((h) => (
+              <th key={h} className="px-2 py-1">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {details.map((d) => (
+            <tr key={d.symbol} className="border-t border-zinc-800">
+              <td className="px-2 py-1 font-medium text-emerald-400">{d.symbol}</td>
+              <td className="px-2 py-1">{d.prevPrice}</td>
+              <td className="px-2 py-1">{d.currentPrice}</td>
+              <td className={`px-2 py-1 ${d.profitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                {d.profitPct >= 0 ? "+" : ""}{d.profitPct}%
+              </td>
+              <td className="px-2 py-1">{d.invested.toFixed(1)}</td>
+              <td className="px-2 py-1">{d.currentValue}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

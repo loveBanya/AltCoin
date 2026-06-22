@@ -40,17 +40,19 @@ function saveConfigLocal(config: ScannerConfig) {
 function toCsv(results: CoinResult[]): string {
   const hasPrev = results.some((r) => r.prevPrice !== undefined);
   const headers = [
-    "순위", "심볼", "현재가",
+    "순위", "판단", "패턴", "심볼", "현재가",
     ...(hasPrev ? ["이전가", "수익률%"] : []),
-    "24h변동%", "거래대금순위", "거래량순위",
-    "90일최고가", "최고가대비%", "MACD", "시그널", "MACD신호", "신호봉전", "신호목록",
+    "24h변동%", "횡보%", "급등%", "눌림%", "RSI",
+    "거래대금순위", "거래량순위", "90일최고가", "최고가대비%",
+    "MACD", "시그널", "MACD신호", "신호봉전", "판단근거", "점수",
   ];
   const rows = results.map((r) => [
-    r.rank, r.symbol, r.price,
+    r.rank, r.biasLabel, r.setupType, r.symbol, r.price,
     ...(hasPrev ? [r.prevPrice ?? "", r.profitPct ?? ""] : []),
-    r.changePct24h, r.quoteVolumeRank, r.volumeRank,
-    r.high90d, r.dropFromHighPct, r.macd, r.macdSignal, r.macdCrossType,
-    r.macdCrossBarsAgo, r.signals.join(", "),
+    r.changePct24h, r.consolidateRangePct, r.pumpPct, r.pullbackFromPumpPct, r.rsi14,
+    r.quoteVolumeRank, r.volumeRank, r.high90d, r.dropFromHighPct,
+    r.macd, r.macdSignal, r.macdCrossType, r.macdCrossBarsAgo,
+    r.biasReasons?.join("; ") ?? "", r.score,
   ]);
   return [headers, ...rows].map((row) => row.join(",")).join("\n");
 }
@@ -243,6 +245,29 @@ export default function Home() {
         </section>
 
         <section className="mb-5">
+          <h3 className="mb-3 text-sm font-medium text-amber-400">⑤ 횡보→급등→눌림목</h3>
+          <div className="space-y-3">
+            <NumInput label="횡보 기간 (시간)" value={config.consolidationHours ?? 72} onChange={(v) => update("consolidationHours", v)} min={24} max={168} />
+            <NumInput label="횡보 최대 변동%" value={config.maxConsolidationRangePct ?? 12} onChange={(v) => update("maxConsolidationRangePct", v)} min={3} max={30} step={1} />
+            <NumInput label="급등 감지 (시간)" value={config.pumpLookbackHours ?? 24} onChange={(v) => update("pumpLookbackHours", v)} min={6} max={72} />
+            <NumInput label="최소 급등%" value={config.minPumpPct ?? 8} onChange={(v) => update("minPumpPct", v)} min={3} max={50} step={1} />
+            <div className="grid grid-cols-2 gap-2">
+              <NumInput label="눌림 최대%" value={config.pullbackMaxPct ?? -2} onChange={(v) => update("pullbackMaxPct", v)} min={-5} max={0} step={1} />
+              <NumInput label="눌림 최소%" value={config.pullbackMinPct ?? -15} onChange={(v) => update("pullbackMinPct", v)} min={-40} max={-5} step={1} />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={config.pullbackSetupOnly ?? false}
+                onChange={(e) => update("pullbackSetupOnly", e.target.checked)}
+                className="accent-amber-500"
+              />
+              눌림목 롱 패턴만 표시
+            </label>
+          </div>
+        </section>
+
+        <section className="mb-5">
           <h3 className="mb-3 text-sm font-medium text-emerald-400">③④ 거래량 필터</h3>
           <div className="space-y-3">
             <NumInput label="거래대금 상위 N" value={config.quoteVolumeTopN} onChange={(v) => update("quoteVolumeTopN", v)} min={10} max={500} />
@@ -272,7 +297,7 @@ export default function Home() {
         <header className="mb-6">
           <h1 className="text-2xl font-bold">바이낸스 USDT 선물 스캐너</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            MACD 신호 + 고점 대비 하락 + 거래량 상위 종목 필터
+            MACD + 고점 필터 + 횡보→급등→눌림목 + 롱/숏/횡보 판단
           </p>
         </header>
 

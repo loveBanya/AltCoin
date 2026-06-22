@@ -5,6 +5,7 @@ import {
   type BinanceMarket,
   type Ticker24hRow,
 } from "./binance-client";
+import { analyzeSetup, setupScoreBonus } from "./ta-analysis";
 
 type Ticker24h = Ticker24hRow;
 
@@ -80,20 +81,18 @@ function scoreCoin(
   quoteRank: number,
   volRank: number,
   config: ScannerConfig,
+  setupBonus: number,
 ): number {
-  let score = 0;
+  let score = setupBonus;
 
-  // 거래량 순위 (유동성)
   score += Math.max(0, 101 - quoteRank) * 2;
   score += Math.max(0, 101 - volRank);
 
-  // MACD 신호
   if (macdFound) {
     score += 1000;
     score += Math.max(0, 6 - barsAgo) * 20;
   }
 
-  // 고점 대비 하락 범위
   if (dropPct >= config.minDropPct && dropPct <= config.maxDropPct) {
     score += 500;
     const mid = (config.minDropPct + config.maxDropPct) / 2;
@@ -129,8 +128,9 @@ async function analyzeSymbol(
   market: BinanceMarket,
 ): Promise<AnalyzedRow | null> {
   try {
-    const [klines5m, klines1d] = await Promise.all([
+    const [klines5m, klines1h, klines1d] = await Promise.all([
       getKlines(symbol, "5m", 200, market),
+      getKlines(symbol, "1h", 200, market),
       getKlines(symbol, "1d", config.highDays, market),
     ]);
 
@@ -153,9 +153,18 @@ async function analyzeSymbol(
 
     const lastMacd = macdLine[macdLine.length - 1];
     const lastSignal = signalLine[signalLine.length - 1];
+    const macdBearish = lastMacd < lastSignal && lastMacd < 0;
+
+    const ohlc1h = klines1h.map((k) => ({
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+    }));
+    const setup = analyzeSetup(ohlc1h, currentPrice, config, found, macdBearish);
 
     const signals: string[] = [];
     if (found) signals.push(crossType);
+    if (setup.setupType !== "일반" && setup.setupType !== "-") signals.push(setup.setupType);
     if (found && config.detectGoldenCross && config.detectZeroCross) {
       if (crossType === "골든크로스" && lastMacd > 0) signals.push("0선 위");
       if (crossType === "0선 돌파" && lastMacd > lastSignal) signals.push("시그널 위");
@@ -163,7 +172,15 @@ async function analyzeSymbol(
     if (!found) signals.push("MACD 미충족");
     if (!dropMatch) signals.push("고점범위 미충족");
 
-    const score = scoreCoin(found, barsAgo, dropPct, quoteRank, volRank, config);
+    const score = scoreCoin(
+      found,
+      barsAgo,
+      dropPct,
+      quoteRank,
+      volRank,
+      config,
+      setupScoreBonus(setup),
+    );
 
     return {
       symbol: symbol.replace("USDT", ""),
@@ -181,6 +198,15 @@ async function analyzeSymbol(
       score,
       macdMatch: found,
       dropMatch,
+      setupType: setup.setupType,
+      consolidateRangePct: setup.consolidateRangePct,
+      pumpPct: setup.pumpPct,
+      pullbackFromPumpPct: setup.pullbackFromPumpPct,
+      pullbackMatch: setup.pullbackMatch,
+      bias: setup.bias,
+      biasLabel: setup.biasLabel,
+      biasReasons: setup.biasReasons,
+      rsi14: setup.rsi14,
     };
   } catch {
     return null;
@@ -269,6 +295,7 @@ export async function scan(
 
   const ranked = analyzed
     .filter((r): r is AnalyzedRow => r !== null)
+    .filter((r) => !config.pullbackSetupOnly || r.setupType === "눌림목 롱")
     .sort((a, b) => b.score - a.score)
     .slice(0, config.resultTopN)
     .map((r, i) => ({ ...r, rank: i + 1 }));
